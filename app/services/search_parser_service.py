@@ -8,6 +8,8 @@ from app.exceptions.exceptions import AIProviderException, StructuredOutputExcep
 from app.providers.gemini_structured_provider import GeminiStructuredProvider
 from app.providers.groq_structured_provider import GroqStructuredProvider
 from app.schemas.search import PropertySearchCriteria
+from app.schemas.conversation import ConversationState, CriteriaUpdate
+from app.services.conversation_prompt import OPERATIONS_PROMPT
 
 logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """You extract structured real-estate search criteria from user requests.
@@ -30,6 +32,25 @@ Schema:
 class SearchParserService:
     def __init__(self, primary: GroqStructuredProvider, fallback: GeminiStructuredProvider):
         self.providers = (primary, fallback)
+
+    async def parse_update(self, message: str, state: ConversationState) -> CriteriaUpdate:
+        context = json.dumps({
+            "message": message,
+            "criteria": state.criteria.model_dump(mode="json"),
+            "awaitingField": state.awaitingField,
+            "unresolvedPropertyType": state.unresolvedPropertyType,
+        }, ensure_ascii=False)
+        for index, provider in enumerate(self.providers):
+            started = perf_counter()
+            name = type(provider).__name__
+            try:
+                raw = await provider.extract(context, OPERATIONS_PROMPT)
+                update = CriteriaUpdate.model_validate_json(raw)
+                logger.info("operations provider=%s count=%d duration_ms=%.0f", name, len(update.operations), (perf_counter() - started) * 1000)
+                return update
+            except (AIProviderException, ValidationError) as exc:
+                logger.warning("operations provider=%s error=%s fallback=%s", name, type(exc).__name__, index == 0)
+        raise StructuredOutputException() from None
 # Search parser function
     async def parse(self, query: str) -> PropertySearchCriteria:
         for index, provider in enumerate(self.providers):

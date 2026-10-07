@@ -16,6 +16,9 @@ from app.providers.groq_transcription_provider import GroqTranscriptionProvider
 from app.providers.huggingface_transcription_provider import HuggingFaceTranscriptionProvider
 from app.services.search_parser_service import SearchParserService
 from app.services.transcription_service import TranscriptionService
+from app.services.conversation_service import ConversationService
+from app.services.conversation_store import InMemoryConversationStore
+from app.services.property_type_resolver import PropertyTypeResolver
 
 settings = Settings()
 configure_logging()
@@ -32,6 +35,10 @@ async def lifespan(app: FastAPI):
         )
         app.state.transcriber = TranscriptionService(
             GroqTranscriptionProvider(client, settings), HuggingFaceTranscriptionProvider(client, settings)
+        )
+        app.state.conversation = ConversationService(
+            app.state.parser, InMemoryConversationStore(settings.conversation_ttl_seconds),
+            PropertyTypeResolver(client, settings),
         )
         yield
 

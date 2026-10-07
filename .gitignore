@@ -4,5 +4,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
-/docs/
+/docs/*
+!/docs/conversation.md
 HabiTerra IA.iml

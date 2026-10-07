@@ -1,7 +1,11 @@
-from fastapi import APIRouter, HTTPException, Request, UploadFile
+from typing import Annotated
+
+from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
 from app.schemas.search import AudioSearchResponse, TextSearchRequest, TextSearchResponse
+from app.schemas.conversation import ConversationRequest, ConversationResponse
+from app.exceptions.exceptions import TranscriptionException
 
 router = APIRouter(prefix="/api/v1/search", tags=["Search"])
 
@@ -26,6 +30,17 @@ async def search_text(body: TextSearchRequest, request: Request) -> TextSearchRe
 
 @router.post("/audio", response_model=AudioSearchResponse, summary="Transcribe audio and extract criteria")
 async def search_audio(file: UploadFile, request: Request) -> AudioSearchResponse:
+    text = await transcribe_upload(file, request)
+    try:
+        body = TextSearchRequest(query=text)
+    except ValidationError:
+        raise HTTPException(422) from None
+    criteria = await request.app.state.parser.parse(body.query)
+    return AudioSearchResponse(transcription=text, criteria=criteria)
+
+
+async def transcribe_upload(file: UploadFile, request: Request) -> str:
+    """Shared upload checks and existing STT for both audio endpoints."""
     try:
         mime = (file.content_type or "").split(";", 1)[0].strip().lower()
         if mime not in AUDIO_TYPES:
@@ -40,10 +55,33 @@ async def search_audio(file: UploadFile, request: Request) -> AudioSearchRespons
         await file.close()
 
     filename = f"audio.{AUDIO_TYPES[mime]}"
-    text = await request.app.state.transcriber.transcribe(audio, filename, mime)
+    return await request.app.state.transcriber.transcribe(audio, filename, mime)
+
+
+@router.post("/conversation", response_model=ConversationResponse, summary="Update conversational search criteria")
+async def search_conversation(body: ConversationRequest, request: Request) -> ConversationResponse:
+    return await request.app.state.conversation.process(body)
+
+
+@router.post("/conversation/audio", response_model=ConversationResponse, summary="Transcribe and update conversational search")
+async def search_conversation_audio(
+    file: UploadFile, request: Request,
+    conversationId: Annotated[str | None, Form(max_length=128, pattern=r"^[A-Za-z0-9_-]+$")] = None,
+) -> ConversationResponse:
     try:
-        body = TextSearchRequest(query=text)
+        text = await transcribe_upload(file, request)
+    except TranscriptionException:
+        return await request.app.state.conversation.input_failure(
+            conversationId, "ERROR", "Impossible de transcrire cet audio."
+        )
+    try:
+        body = ConversationRequest(conversationId=conversationId, message=text)
     except ValidationError:
-        raise HTTPException(422) from None
-    criteria = await request.app.state.parser.parse(body.query)
-    return AudioSearchResponse(transcription=text, criteria=criteria)
+        response = await request.app.state.conversation.input_failure(
+            conversationId, "INVALID_INPUT", "La transcription doit contenir entre 1 et 5000 caractères."
+        )
+        response.transcription = text
+        return response
+    response = await request.app.state.conversation.process(body)
+    response.transcription = text
+    return response

@@ -112,5 +112,28 @@ Les identifiants demandés restent configurables, sans substitution silencieuse 
   Un endpoint dédié peut être nécessaire. Vérifier aussi les langues prises en charge
   par le modèle choisi, notamment le français.
 
-Aucun test automatisé ni dépendance de test. La vérification locale porte uniquement
-sur les imports, les schémas, OpenAPI et le démarrage HTTP.
+## Conversation multi-tour
+
+Les nouvelles routes `POST /api/v1/search/conversation` (JSON) et
+`POST /api/v1/search/conversation/audio` (multipart) partagent un moteur à opérations
+SET/REMOVE et un store temporaire en mémoire. Les anciennes routes gardent leur
+contrat. Voir [le contrat conversationnel](docs/conversation.md) pour les critères
+Spring Boot, les clarifications, les types de biens et les exemples.
+
+Expiration configurable avec `CONVERSATION_TTL_SECONDS=1800`. Utiliser un seul
+worker ; les conversations sont perdues au redémarrage.
+
+Le type de bien conversationnel est résolu automatiquement via le catalogue
+`GET /api/v1/property-types` de `SPRING_BOOT_BASE_URL` (défaut :
+`http://localhost:8080`). Cache mémoire : `PROPERTY_TYPES_CACHE_TTL_SECONDS=300` ;
+timeout catalogue : `PROPERTY_TYPES_TIMEOUT_SECONDS=5`. Aucun ID n'est hardcodé.
+
+Tests automatisés sans dépendance supplémentaire :
+
+```powershell
+.\.venv-runtime\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Les providers et Spring Boot sont simulés dans les tests unitaires. Un contrôle
+manuel réel LLM + catalogue a aussi validé « Je cherche un appartement à Mermoz »
+le 7 octobre 2026 ; voir le contrat conversationnel pour les résultats et limites.

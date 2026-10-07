@@ -1,4 +1,4 @@
-from pydantic import Field, SecretStr
+from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Config model
@@ -20,4 +20,7 @@ class Settings(BaseSettings):
     http_read_timeout_seconds: float = Field(default=30, gt=0, allow_inf_nan=False)
     max_audio_size_mb: int = Field(default=20, ge=1, le=100)
     cors_origins: list[str] = []
-
+    conversation_ttl_seconds: int = Field(default=1800, ge=1)
+    spring_boot_base_url: HttpUrl = HttpUrl("http://localhost:8080")
+    property_types_cache_ttl_seconds: int = Field(default=300, ge=1)
+    property_types_timeout_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)
